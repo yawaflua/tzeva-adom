@@ -1,0 +1,19 @@
+{
+  "threat_0": "Red alert",
+  "threat_1": "Hazardous Materials Incident",
+  "threat_2": "Fear of Terrorists infiltration",
+  "threat_3": "Earthquake",
+  "threat_4": "Fear of a tsunami",
+  "threat_5": "Hostile aircraft intrusion",
+  "threat_6": "Fear of a Radiological incident",
+  "threat_7": "Non-conventional missile",
+  "threat_8": "Alert",
+  "threat_9": "Home Front Command Drill",
+  "default": "Unnamed",
+  "drill": "Drill: ",
+  "true": "yes",
+  "false": "no",
+  "threat": "Threat: ",
+  "cities": "Cities: "
+
+}
