@@ -11,8 +11,11 @@
 
 #include <boost/optional.hpp>
 #include <stdexcept>
+#include <fmt/format.h>
 #include <regex>
 #include <nlohmann/json.hpp>
+#include "models/Interfaces/IAlertResponse.cpp"
+#include "models/Interfaces/IAlert.cpp"
 
 namespace tzeva_adom {
     using nlohmann::json;
@@ -31,9 +34,16 @@ namespace tzeva_adom {
     }
     #endif
 
-    class Alert {
+    class Alert : public IAlert{
         public:
         Alert() = default;
+        Alert(
+            const int64_t time,
+            const std::vector<std::string>& cities,
+            int64_t threat,
+            bool is_drill
+        ) :
+        time(time), cities(cities), threat(threat), is_drill(is_drill) {};
         virtual ~Alert() = default;
 
         private:
@@ -48,10 +58,12 @@ namespace tzeva_adom {
         void set_time(const int64_t & value) { this->time = value; }
 
         const std::vector<std::string> & get_cities() const { return cities; }
+        std::vector<std::string> get_cities() override { return cities; }
         std::vector<std::string> & get_mutable_cities() { return cities; }
         void set_cities(const std::vector<std::string> & value) { this->cities = value; }
 
         const int64_t & get_threat() const { return threat; }
+        int get_threat() override { return threat; }
         int64_t & get_mutable_threat() { return threat; }
         void set_threat(const int64_t & value) { this->threat = value; }
 
@@ -60,9 +72,25 @@ namespace tzeva_adom {
         void set_is_drill(const bool & value) { this->is_drill = value; }
     };
 
-    class AlertResponseElement {
+    class AlertResponseElement : public IAlertResponse {
         public:
         AlertResponseElement() = default;
+        AlertResponseElement(
+            const int id,
+            const nlohmann::json description,
+            const nlohmann::json alerts)
+            : id(id), description(description) {
+            for (const auto& alertJson : alerts) {
+
+                int64_t time = alertJson["time"];
+                std::vector<std::string> cities = alertJson["cities"].get<std::vector<std::string>>();
+                int64_t threat = alertJson["threat"];
+                bool is_drill = alertJson["isDrill"];
+
+                Alert _alert = *std::make_unique<Alert>(time, cities, threat, is_drill).get();
+                this->alerts.push_back(_alert);
+            }
+        }
         virtual ~AlertResponseElement() = default;
 
         private:
@@ -71,9 +99,18 @@ namespace tzeva_adom {
         std::vector<Alert> alerts;
 
         public:
-        const int64_t & get_id() const { return id; }
+        int get_id() override { return id; }
+        const int64_t &get_id() const { return id; }
         int64_t & get_mutable_id() { return id; }
         void set_id(const int64_t & value) { this->id = value; }
+
+        int get_threat() override {
+            int i = 0;
+            for (auto alert: alerts) {
+                i += alert.get_threat();
+            }
+            return i / alerts.size();
+        }
 
         const nlohmann::json & get_description() const { return description; }
         nlohmann::json & get_mutable_description() { return description; }
@@ -82,6 +119,26 @@ namespace tzeva_adom {
         const std::vector<Alert> & get_alerts() const { return alerts; }
         std::vector<Alert> & get_mutable_alerts() { return alerts; }
         void set_alerts(const std::vector<Alert> & value) { this->alerts = value; }
+
+        std::string get_cities() override {
+            return fmt::format("{}", fmt::join(get_cities_arr(), ", "));
+        }
+
+        std::vector<std::string> get_cities_arr() override {
+            std::vector<std::string> cities_to_return = {} ;
+            for (auto alert : alerts) {
+                cities_to_return.push_back(fmt::format("{}", fmt::join(alert.get_cities(), "")));
+            }
+            return cities_to_return;
+        }
+
+        std::vector<IAlert> get_alerts() override {
+            std::vector<IAlert> alertsToReturn {};
+            for (IAlert alert : alerts) {
+                alertsToReturn.insert(alertsToReturn.begin(), alert);
+            }
+            return alertsToReturn;
+        };
     };
 
     using AlertResponse = std::vector<AlertResponseElement>;

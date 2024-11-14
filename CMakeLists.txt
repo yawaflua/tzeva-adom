@@ -16,7 +16,14 @@ add_executable(tzeva_adom main.cpp
         utils/audio_play.cpp
         locale/localization_get.cpp
         utils/localization_manager.h
-        utils/localization_manager.h
+        models/OrefAlertResponse.cpp
+        CONFIG.cpp
+        models/Interfaces/IAlertResponse.cpp
+        models/Interfaces/IAlert.cpp
+        locale/OREF_localization.cpp
+        models/AlertMessage_OREF.cpp
+        utils/OREFToTzevaAdom.cpp
+        models/OrefAlertResponse.cpp
 )
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLIB REQUIRED glib-2.0)

@@ -10,9 +10,12 @@
 #include <libnotify/notify.h>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/string/split.hpp>
 
+#include "CONFIG.cpp"
 #include "utils/audio_play.cpp"
 #include "models/AlertResponse.cpp"
+#include "models/OrefAlertResponse.cpp"
 #include "utils/image_downloader.cpp"
 #include "utils/localization_manager.h"
 
@@ -20,13 +23,14 @@ class AlertResponse;
 
 tzeva_adom::LocalizationManager localization_manager;
 using json = nlohmann::json;
-int16_t lastId = 0;
+int64_t lastId = 0;
 json cities_n_areas_list;
 bool is_cities_loaded = false;
 bool is_test = false;
 std::string this_path = boost::filesystem::current_path().c_str();
 std::string lang = "en";
 std::vector<tzeva_adom::Alert> test_alert_variable;
+bool is_oref = false;
 
 // Функция для записи данных от curl
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) {
@@ -52,56 +56,55 @@ void process_alert(const std::string& data) {
         }
 
         spdlog::debug("Get first object from answer");
-        auto* first_alert = new tzeva_adom::AlertResponseElement(response.at(0));
 
-        spdlog::debug("Answer: {}", first_alert->get_id());
-
-        auto id = first_alert->get_id();
-
-        if (lastId == 0 || id == lastId) {
-            lastId = id;
-        } else {
-            is_alert = !is_alert;
-            lastId = id;
-            spdlog::debug("This is alert!");
+        std::unique_ptr<tzeva_adom::IAlertResponse> first_alert;
+        if (is_oref) {
+            spdlog::debug("OREF_alertDate: {}", response[0]["alertDate"]);
+            spdlog::debug("OREF_title: {}", response[0]["title"]);
+            spdlog::debug("OREF_data: {}", response[0]["data"]);
+            spdlog::debug("OREF_category: {}",std::to_string(response[0]["category"].get<int>()));
+            spdlog::debug("OREF selected, create oref object");
+            auto response_oref = response.at(0);
+            first_alert = std::make_unique<tzeva_adom::OrefAlertResponse>(response_oref["alertDate"], response_oref["title"], response_oref["data"], response_oref["category"]);
+        }
+        else {
+            spdlog::debug("TzevaAdom selected, create object");
+            auto response_tzeva = response.at(0);
+            first_alert = std::make_unique<tzeva_adom::AlertResponseElement>(
+                response_tzeva["id"].get<int>(),
+                response_tzeva["description"].get<json>(),
+                response_tzeva["alerts"].get<json>());
         }
 
+        auto id = first_alert->get_id();
+        spdlog::debug("Answer: {}", id);
+
+        if (!(lastId == 0 || id == lastId)) {
+            is_alert = true;
+            spdlog::debug("This is alert!");
+        }
+        lastId = id;
+
         if (is_alert || is_test) {
-            is_test = !is_test;
-            // auto description = first_alert["description"].is_string() ?"": first_alert["description"].get<std::string>() ;
-            std::string description = "";
-            const std::vector<tzeva_adom::Alert> alerts_array = is_test ? test_alert_variable : first_alert->get_alerts();
-            std::vector<std::string> cities;
-            std::vector<int> threats;
+            is_test = false;
+            is_alert = false;
 
-            for (auto alerts: alerts_array) {
-                auto time = alerts.get_time();
-                for (auto city: alerts.get_cities()) {
-                    cities.insert(cities.begin(), city);
-            }
+            std::string cities = first_alert->get_cities();
+            int threat = first_alert->get_threat();
 
-            threats.insert(threats.begin(), alerts.get_threat());
-            auto isDrill = alerts.get_is_drill();
+            // spdlog::debug("Time: {}", time);
+            spdlog::debug("Cities: {}", cities);
 
 
-
-            spdlog::debug("Time: {}", time);
-            spdlog::debug("Cities: {}", fmt::join(cities, ", "));
-
-            spdlog::debug("Threat Level: {}", alerts.get_threat());
-            spdlog::debug("Is Drill: {}", isDrill);
-            }
-
-            int threat = *std::max_element( threats.begin(), threats.end() );
             std::string icon_url = boost::filesystem::current_path().c_str()+fmt::format("/threat{}.{}", std::to_string(threat), threat == 0 ? "png" : "svg");
 
-            spdlog::debug("Threat: {}", threat);
+            spdlog::debug("Threat: {}", first_alert->get_threat());
             spdlog::debug("Threat name: {}", localization_manager.getString(fmt::format("threat_{}", threat)));
             spdlog::debug("Language: {}", lang);
             spdlog::debug("Icon path: {}", icon_url);
 
             std::string localised_cities_names = "";
-            for (auto city: cities) {
+            for (auto city: first_alert->get_cities_arr()) {
                 localised_cities_names += fmt::format("{} ", cities_n_areas_list["cities"][city][lang]);
             }
 
@@ -133,8 +136,9 @@ void process_alert(const std::string& data) {
         }
 
 
-    } catch (const std::exception& e) {
-        spdlog::error("Alert error: {}", e.what());
+    } catch (...) {
+        std::exception_ptr e = std::current_exception();
+        spdlog::error("Alert error: {}", e ? (e.__cxa_exception_type()->name()) : "null");
 
     }
 
@@ -150,9 +154,14 @@ void fetch_alerts_history(std::atomic<bool>& running) {
         curl = curl_easy_init();
 
         // Parse cities and areas names on he, ru and en
+        if (is_oref && lang == "he") {
+            spdlog::error("Lang is not supported. Use TZEVA_ADOM");
+            return;
+        }
         if (!is_cities_loaded) {
             std::string readBuffer;
-            curl_easy_setopt(curl, CURLOPT_URL, "https://www.tzevaadom.co.il/static/cities.json");
+            //Only tzeva_adom variable of cities list, because thats easier to work, than oref variable(without linq)
+            curl_easy_setopt(curl, CURLOPT_URL, CITIES_TZEVA_ADOM);
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
 
@@ -169,7 +178,7 @@ void fetch_alerts_history(std::atomic<bool>& running) {
         if (curl) {
             std::string readBuffer;
             curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0");
-            curl_easy_setopt(curl, CURLOPT_URL, "https://api.tzevaadom.co.il/alerts-history");
+            curl_easy_setopt(curl, CURLOPT_URL, !is_oref ? TZEVA_ADOM_URL : OREF_URL);
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
 
@@ -213,15 +222,6 @@ int main(int argc, char** argv) {
             spdlog::set_level(spdlog::level::debug); // Set global log level to debug if provided --debug
         else if (argv[i] == "-t"sv || argv[i] == "--test") {
             is_test = true; // Set tested variable is true
-            std::vector alert_to_array {tzeva_adom::Alert()};
-            const auto p1 = std::chrono::system_clock::now();
-            ulong t = std::chrono::duration_cast<std::chrono::seconds>(
-                   p1.time_since_epoch()).count();
-            std::vector<std::string> city_vectors{"אשדוד -יא,יב,טו,יז,מרינה,סיט", "אשדוד - ח,ט,י,יג,יד,טז"};
-            alert_to_array[0].set_cities(city_vectors);
-            alert_to_array[0].set_time(t);
-            alert_to_array[0].set_threat(0);
-            test_alert_variable.push_back(alert_to_array[0]);
         }
         else if (argv[i] == "-l"sv || argv[i] == "--lang"sv) {
             is_accept_values = true;
@@ -231,7 +231,6 @@ int main(int argc, char** argv) {
             is_accept_values = false;
             lang = argv[i];
             spdlog::debug("Language setted to {}", lang);
-
         }
         else if (argv[i] == "-h"sv || argv[i] == "--help"sv) {
             spdlog::info(
@@ -240,9 +239,14 @@ int main(int argc, char** argv) {
                 "   -h --help:   Show this message\n"\
                 "   -d --debug:  Show debug messages\n"\
                 "   -t --test:   Create test alert end exit\n"\
-                "   -l --lang:   Choose language: ru, en, he,"
+                "   -l --lang:   Choose language: ru, en, he\n"\
+                "   -o --oref:   Use OREF uri`s for alerts"\
                 "");
             return 0;
+        }
+        else if (argv[i] == "-o"sv || argv[i] == "--oref"sv) {
+            is_oref = true;
+            spdlog::debug("Selected provider: OREF");
         }
         last_flag = argv[i];
     }
@@ -253,7 +257,7 @@ int main(int argc, char** argv) {
         if (!boost::filesystem::exists(this_path+fmt::format("/threat{}.{}", std::to_string(i), i == 0 ? "png" : "svg"))) {
             tzeva_adom::download_file(
                 fmt::format(
-                    "https://www.tzevaadom.co.il/static/images/threat{}.{}",
+                    THREAT_IMAGES_URL,
                     std::to_string(i), i == 0 ? "png" : "svg"),
                 fmt::format("threat{}.{}", std::to_string(i), i == 0 ? "png" : "svg")
                 );
@@ -265,7 +269,7 @@ int main(int argc, char** argv) {
     //Download tzeva-adom bell sound
     if (!boost::filesystem::exists(this_path+fmt::format("/bell.mp3"))) {
         tzeva_adom::download_file(
-            "https://www.tzevaadom.co.il/static/sounds/bell.mp3",
+            BELL_SOUND_URL,
             fmt::format("bell.mp3")
             );
     }
