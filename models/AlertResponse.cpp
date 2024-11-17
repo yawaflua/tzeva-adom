@@ -16,7 +16,7 @@
 #include <nlohmann/json.hpp>
 #include "models/Interfaces/IAlertResponse.cpp"
 #include "models/Interfaces/IAlert.cpp"
-
+#include <fmt/ranges.h>
 namespace tzeva_adom {
     using nlohmann::json;
 
@@ -127,7 +127,8 @@ namespace tzeva_adom {
         std::vector<std::string> get_cities_arr() override {
             std::vector<std::string> cities_to_return = {} ;
             for (auto alert : alerts) {
-                cities_to_return.push_back(fmt::format("{}", fmt::join(alert.get_cities(), "")));
+                for (auto city : alert.get_cities())
+                    cities_to_return.push_back(city);
             }
             return cities_to_return;
         }

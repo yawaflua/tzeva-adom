@@ -24,28 +24,29 @@ add_executable(tzeva_adom main.cpp
         models/AlertMessage_OREF.cpp
         utils/OREFToTzevaAdom.cpp
         models/OrefAlertResponse.cpp
+        utils/check_file_exists.h
 )
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLIB REQUIRED glib-2.0)
 pkg_check_modules(NOTIFY REQUIRED libnotify)
 pkg_check_modules(SDL REQUIRED libnotify)
-find_package(fmt REQUIRED)
+pkg_check_modules(SDL2 REQUIRED libnotify)
+pkg_check_modules(SDL2_mixer REQUIRED libnotify)
+pkg_check_modules(fmt REQUIRED fmt)
+pkg_check_modules(boost_filesystem REQUIRED)
+
 
 include_directories(lang)
 include_directories(${GLIB_INCLUDE_DIRS})
 include_directories(${NOTIFY_INCLUDE_DIRS})
 include_directories(${CURL_INCLUDE_DIRS})
+include_directories(${fmt_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
-find_package(SDL2 REQUIRED)
-find_package(SDL2_mixer REQUIRED)
-include_directories(${SDL2_INCLUDE_DIRS} ${SDL2_MIXER_INCLUDE_DIRS})
-find_package(Boost REQUIRED COMPONENTS filesystem)
-include_directories(${Boost_INCLUDE_DIRS})
 
 
 # Линкуем библиотеки
 target_include_directories(tzeva_adom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} "lang/")
-target_link_libraries(tzeva_adom PRIVATE SDL2 SDL2_mixer ${Boost_LIBRARIES} CURL::libcurl nlohmann_json::nlohmann_json ${GLIB_LIBRARIES} fmt::fmt ${NOTIFY_LIBRARIES} ${CURL_LIBRARIES})
+target_link_libraries(tzeva_adom PRIVATE SDL2 SDL2_mixer ${SDL2_LIBRARIES} ${SDL2_MIXER_LIBRARIES} ${fmt_LIBRARIES} ${Boost_LIBRARIES} CURL::libcurl nlohmann_json::nlohmann_json ${GLIB_LIBRARIES} ${NOTIFY_LIBRARIES} ${CURL_LIBRARIES})
 
 add_custom_command(TARGET tzeva_adom POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory

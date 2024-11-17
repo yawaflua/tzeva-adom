@@ -4,12 +4,13 @@
 #include <thread>
 #include <curl/curl.h>
 #include <atomic>
+
 #include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 #include <string_view>
 #include <libnotify/notify.h>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include "utils/check_file_exists.h"
 #include <boost/algorithm/string/split.hpp>
 
 #include "CONFIG.cpp"
@@ -18,6 +19,7 @@
 #include "models/OrefAlertResponse.cpp"
 #include "utils/image_downloader.cpp"
 #include "utils/localization_manager.h"
+#include <fmt/ranges.h>
 
 class AlertResponse;
 
@@ -27,7 +29,7 @@ int64_t lastId = 0;
 json cities_n_areas_list;
 bool is_cities_loaded = false;
 bool is_test = false;
-std::string this_path = boost::filesystem::current_path().c_str();
+std::string this_path = std::filesystem::current_path().c_str();
 std::string lang = "en";
 std::vector<tzeva_adom::Alert> test_alert_variable;
 bool is_oref = false;
@@ -59,9 +61,9 @@ void process_alert(const std::string& data) {
 
         std::unique_ptr<tzeva_adom::IAlertResponse> first_alert;
         if (is_oref) {
-            spdlog::debug("OREF_alertDate: {}", response[0]["alertDate"]);
-            spdlog::debug("OREF_title: {}", response[0]["title"]);
-            spdlog::debug("OREF_data: {}", response[0]["data"]);
+            spdlog::debug("OREF_alertDate: {}", response[0]["alertDate"].get<std::string>());
+            spdlog::debug("OREF_title: {}", response[0]["title"].get<std::string>());
+            spdlog::debug("OREF_data: {}", response[0]["data"].get<std::string>());
             spdlog::debug("OREF_category: {}",std::to_string(response[0]["category"].get<int>()));
             spdlog::debug("OREF selected, create oref object");
             auto response_oref = response.at(0);
@@ -96,7 +98,7 @@ void process_alert(const std::string& data) {
             spdlog::debug("Cities: {}", cities);
 
 
-            std::string icon_url = boost::filesystem::current_path().c_str()+fmt::format("/threat{}.{}", std::to_string(threat), threat == 0 ? "png" : "svg");
+            std::string icon_url = this_path+fmt::format("/threat{}.{}", std::to_string(threat), threat == 0 ? "png" : "svg");
 
             spdlog::debug("Threat: {}", first_alert->get_threat());
             spdlog::debug("Threat name: {}", localization_manager.getString(fmt::format("threat_{}", threat)));
@@ -104,17 +106,19 @@ void process_alert(const std::string& data) {
             spdlog::debug("Icon path: {}", icon_url);
 
             std::string localised_cities_names = "";
-            for (auto city: first_alert->get_cities_arr()) {
-                localised_cities_names += fmt::format("{} ", cities_n_areas_list["cities"][city][lang]);
-            }
+            if (lang != "he")
+                for (auto city: first_alert->get_cities_arr())
+                    localised_cities_names += fmt::format("{} ", cities_n_areas_list["cities"][city][lang].get<std::string>());
+            else
+                localised_cities_names = first_alert->get_cities();
 
             spdlog::debug("Init notification");
             notify_init(localization_manager.getString(fmt::format("threat_{}", std::to_string(threat))).c_str());
             NotifyNotification* n = notify_notification_new (localization_manager.getString(fmt::format("threat_{}", std::to_string(threat))).c_str(),
                         fmt::format(
-                            "{}: {}\n"\
-                            "{}: {}\n"\
-                            "{}: {}",
+                            "{} {}\n"\
+                            "{} {}\n"\
+                            "{} {}",
                             localization_manager.getString("cities"),
                             localised_cities_names,
                             localization_manager.getString("threat"),
@@ -154,10 +158,10 @@ void fetch_alerts_history(std::atomic<bool>& running) {
         curl = curl_easy_init();
 
         // Parse cities and areas names on he, ru and en
-        if (is_oref && lang == "he") {
-            spdlog::error("Lang is not supported. Use TZEVA_ADOM");
-            return;
-        }
+        // if (is_oref && lang == "he") {
+        //     spdlog::error("Lang is not supported. Use TZEVA_ADOM");
+        //     return;
+        // }
         if (!is_cities_loaded) {
             std::string readBuffer;
             //Only tzeva_adom variable of cities list, because thats easier to work, than oref variable(without linq)
@@ -240,7 +244,7 @@ int main(int argc, char** argv) {
                 "   -d --debug:  Show debug messages\n"\
                 "   -t --test:   Create test alert end exit\n"\
                 "   -l --lang:   Choose language: ru, en, he\n"\
-                "   -o --oref:   Use OREF uri`s for alerts"\
+                "   -o --oref:   Use OREF api`s for alerts"\
                 "");
             return 0;
         }
@@ -251,10 +255,10 @@ int main(int argc, char** argv) {
         last_flag = argv[i];
     }
 
-    spdlog::debug("Path: {}", boost::filesystem::current_path().c_str());
+    spdlog::debug("Path: {}", this_path);
 
     for (int i = 0; i <= 5; i++) {
-        if (!boost::filesystem::exists(this_path+fmt::format("/threat{}.{}", std::to_string(i), i == 0 ? "png" : "svg"))) {
+        if (!file_exists(this_path+fmt::format("/threat{}.{}", std::to_string(i), i == 0 ? "png" : "svg"))) {
             tzeva_adom::download_file(
                 fmt::format(
                     THREAT_IMAGES_URL,
@@ -267,7 +271,7 @@ int main(int argc, char** argv) {
     localization_manager = tzeva_adom::LocalizationManager();
     localization_manager.setCurrentLanguage(lang);
     //Download tzeva-adom bell sound
-    if (!boost::filesystem::exists(this_path+fmt::format("/bell.mp3"))) {
+    if (!file_exists(this_path+fmt::format("/bell.mp3"))) {
         tzeva_adom::download_file(
             BELL_SOUND_URL,
             fmt::format("bell.mp3")

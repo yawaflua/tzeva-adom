@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp> // Подключение библиотеки JSON
+#include <fmt/format.h>
 
 namespace  tzeva_adom {
     class LocalizationManager {
